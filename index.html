@@ -730,6 +730,20 @@ resizeCanvas(); // do an initial size
 function resizeCanvas() {
   mapCanvas.width  = mapContainer.clientWidth;
   mapCanvas.height = mapContainer.clientHeight;
+  if (!initialZoomSet) {
+        // Calculate scale based on viewport height (initial zoom)
+        const scaleToFitHeight = mapCanvas.height / MAP_HEIGHT;
+        const scaleToFitWidth = mapCanvas.width / MAP_WIDTH;
+
+        // Choose the smaller scale to ensure the entire map fits
+        mapScale = Math.min(scaleToFitHeight, scaleToFitWidth);
+
+        // Center the map in the viewport
+        mapOffsetX = (MAP_WIDTH - mapCanvas.width / mapScale) / 2;
+        mapOffsetY = (MAP_HEIGHT - mapCanvas.height / mapScale) / 2;
+
+        initialZoomSet = true; // Prevents overriding user zoom later
+    }
   drawAll();
 }
 
