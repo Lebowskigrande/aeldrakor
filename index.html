@@ -1,0 +1,1211 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <link href="https://fonts.googleapis.com/css2?family=Tangerine:wght@400;700&display=swap" rel="stylesheet">
+
+  <meta charset="UTF-8">
+  <title>Aeldrakor</title>
+  <style>
+    /* Layout: left = map, right = info pane */
+    html, body {
+      margin: 0;
+      padding: 0;
+      width: 100%;
+      height: 100%;
+      overflow: hidden; 
+      font-family: sans-serif;
+    }
+    .main-layout {
+      display: flex;
+      width: 100%;
+      height: 100vh;
+    }
+    .map-container {
+      position: relative;
+      flex: 1;
+      background: #333;
+    }
+    #mapCanvas {
+      display: block;
+      background: #D3D3D3;
+    }
+    .info-pane {
+      position: fixed;
+      right: 10px;
+      top: 10px;
+      /*transform: translateY(-50%); /* Shift upward by half its own height */
+
+      width: 300px; /* Adjust to the width of the pane */
+      height: 90vh;
+      background-color: white;
+      border-radius: 16px;
+      box-shadow: -2px 0 10px rgba(0, 0, 0, 0.1);
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      transition: all 0.3s ease;
+      padding: 15px;
+      overflow: hidden;
+      /*z-index: 1000; /* Ensure it stays above other content */
+    }
+    
+    /* 📌 Collapsed State: Becomes Small Circle */
+    .info-pane.collapsed {
+      position: absolute;
+      top: 10px;
+      right: 10px;
+      border-radius: 16px;
+      width: 10px;
+      height: 10px;
+      border
+      display: flex;
+      justify-content: center;
+      align-items: center;
+      transition: all 0.3s ease;
+    }
+    
+    /* 📌 Hide all content inside except the collapse button */
+    .info-pane.collapsed > *:not(.collapse-button) {
+      visibility: hidden;
+      opacity: 0;
+      height: 0;
+      width: 0;
+      overflow: hidden;
+      transition: opacity 0.2s ease, height 0.2s ease;
+    }
+    
+    /* 📌 Collapse Button */
+    .collapse-button {
+      position: absolute;
+      top: 5px;
+      right: 5px;
+      background: transparent;
+      border: none;
+      font-size: 20px;
+      cursor: pointer;
+      width: 30px;
+      height: 30px;
+      display: flex;
+      justify-content: center;
+      align-items: center;
+      border-radius: 50%;
+      transition: all 0.3s ease;
+      z-index: 1000; /* Ensure it stays above other content */
+    }
+    
+    /* 📌 Button Hover Effect */
+    .collapse-button:hover {
+      background: rgba(0, 0, 0, 0.1);
+    }
+    /*    
+    .info-pane:hover {
+      pointer-events: auto; /* Allow interaction only when the user hovers over the pane */
+      
+    }
+    */
+    .info-pane:not(:hover) {
+      pointer-events: none; /* Disable interaction when not hovered over */
+    }
+
+    .info-pane h2 {
+      margin-top: 10px;
+      font-family: 'Tangerine', cursive; 
+      font-weight: 900; 
+      font-size: 40px;
+    }
+    
+    #zone-info {
+        padding: 10px;
+        align-items: center;
+    }
+    
+    #info-image {
+      width: 250px; /* Set your image width */
+      height: auto;
+      border-radius: 16px; /* Round the corners */
+    }
+    
+    
+    .content {
+      flex-grow: 1;
+      padding: 16px;
+      overflow-y: auto;
+      scrollbar-width: none; /* Hide scrollbar for Firefox */
+      -ms-overflow-style: none; /* Hide scrollbar for IE */
+    }
+    
+    .content::-webkit-scrollbar {
+      display: none; /* Hide scrollbar for Chrome, Safari, and Edge */
+    }
+    
+    .scroll-icon {
+      display: flex;
+      justify-content: center;
+      align-items: center;
+      padding: 8px;
+      border-top: 1px solid #eee;
+    }
+    
+    .scroll-icon img {
+      width: 24px;
+      height: 24px;
+      opacity: 0.6;
+    }
+    /* Zone info display */
+    .zone-info {
+      margin-bottom: 1em;
+    }
+    /* Hover tooltip for zone names */
+    #zoneTooltip {
+      position: absolute;
+      pointer-events: none;
+      background: rgba(255,255,255,0.9);
+      border: 1px solid #888;
+      border-radius: 4px;
+      padding: 4px 6px;
+      font-size: 13px;
+      display: none; 
+      z-index: 999;
+    }
+    /* Measuring distance near cursor */
+    #measureTooltip {
+      position: absolute;
+      pointer-events: none;
+      background: rgba(255,255,255,0.9);
+      border: 1px solid #888;
+      border-radius: 4px;
+      padding: 4px 6px;
+      font-size: 13px;
+      display: none;
+      z-index: 999;
+    }
+    /* Label for the final measurement distance with an [x] button */
+    .measure-label {
+      position: absolute;
+      background: rgba(255,255,255,0.9);
+      border: 1px solid #888;
+      border-radius: 4px;
+      padding: 3px 6px;
+      font-size: 13px;
+      display: flex;
+      gap: 6px;
+      align-items: center;
+    }
+    .measure-label button {
+      background: none;
+      border: none;
+      color: red;
+      font-weight: bold;
+      cursor: pointer;
+    }
+  </style>
+</head>
+<body>
+
+<div class="main-layout">
+  <!-- Left: Map + Canvas -->
+  <div class="map-container" id="mapContainer">
+    <canvas id="mapCanvas" width="1024" height="768"></canvas>
+    <div id="zoneTooltip"></div>
+    <div id="measureTooltip"></div>
+  </div>
+
+  <!-- Right: Info Pane 
+    <div class="info-pane" id="infoPane">
+      <button id="collapseBtn" class="collapse-button">⋮</button>
+      <h2 id="infoTitle">Aeldrakor</h2>
+      <div id="zoneInfo">Click on a zone to see details here.</div>
+    </div> -->
+
+</div>
+
+<script>
+/* =========================================
+   1) MAP, ZOOM, PAN CONSTANTS
+   ========================================= */
+// The map is 2048 x 1610, scale is 1 pixel = 1 miles
+const MAP_WIDTH  = 2048;
+const MAP_HEIGHT = 1610;
+const MILES_PER_PIXEL = 1;
+
+// Zoom limits
+const MIN_SCALE = 0.25; // 25%
+const MAX_SCALE = 4.0; // 400%
+
+/* =========================================
+   2) GLOBAL STATE
+   ========================================= */
+const mapContainer = document.getElementById('mapContainer');
+const mapCanvas    = document.getElementById('mapCanvas');
+const ctx          = mapCanvas.getContext('2d');
+
+const zoneTooltip  = document.getElementById('zoneTooltip');
+const measureTooltip = document.getElementById('measureTooltip');
+const zoneInfoEl   = document.getElementById('zoneInfo');
+
+// Map image
+const mapImg = new Image();
+mapImg.src = "aeldrakor-map.jpg"; // must be 2048 x 1610
+
+// Camera transform (in map coords)
+let mapScale   = 1.0;  // range [1, 4]
+let mapOffsetX = 0;    
+let mapOffsetY = 0;    
+
+// Drag panning animation
+let isPanning = false;
+let startX, startY;
+let lastOffsetX = 0, lastOffsetY = 0;
+const DRAG_THRESHOLD = 5; // Minimum movement before activating grab state
+let hasDragged = false;  // Tracks if the mouse has moved
+
+// Measuring
+let measuringActive = false;
+let currentMeasurePoints = []; // array of {x,y} in map coords
+let measurements = []; // array of { points, color, labelEl }
+let measureColorIndex = 0;
+const MEASURE_COLORS = ["red","blue","green","orange","purple","teal","brown"];
+let cursorMapPos = null; // { x, y } or null if not measuring
+
+let hoveredZone = null; // Tracks the zone the user is currently hovering over
+const highlightImages = {};
+
+
+
+
+/* =========================================
+   3) ZONE DATA (Rect, Circle, Poly)
+   =========================================
+   shape: "circle" => { cx, cy, r }
+   shape: "rect"   => { x1, y1, x2, y2 } (axis-aligned)
+   shape: "polygon"=> { polygon: [[x,y],...]}
+*/
+const ZONES = [
+  {
+    name: "Rivermeet",
+    description: "",
+    population: "",
+    shape: "circle",
+    cx: 949, 
+    cy: 881, 
+    r: 40,
+    highlightImage: "overlays/rivermeet.png",
+    image: "images/rivermeet.jpg",
+  },
+  {
+    name: "Elora Port",
+    description: "",
+    population: "",
+    shape: "circle",
+    cx: 624, 
+    cy: 946, 
+    r: 21,
+    highlightImage: "overlays/elora-port.png",
+    image: "images/elora-port.webp",
+  },
+  {
+    name: "Harborhome",
+    description: "",
+    population: "",
+    shape: "circle",
+    cx: 859, 
+    cy: 519, 
+    r: 40,
+    highlightImage: "overlays/harborhome.png",
+    image: "images/harborhome.webp",
+  },
+  {
+    name: "Steppestone",
+    description: "",
+    population: "",
+    shape: "circle",
+    cx: 1398, 
+    cy: 1175, 
+    r: 43,
+    highlightImage: "overlays/steppestone.png",
+    image: "images/steppestone.jpg",
+  },
+  {
+    name: "Icehold",
+    description: "",
+    population: "",
+    shape: "rect",
+    x1: 1356, 
+    y1: 1283, 
+    x2: 1447, 
+    y2: 1317,
+    highlightImage: "overlays/icehold.png",
+    image: "images/icehold.jpg",
+  },
+  {
+    name: "Mountains of Ice",
+    description: "",
+    population: "",
+    shape: "poly",
+    polygon: [
+  [1445, 1469], [1459, 1461], [1468, 1451], [1479, 1445], [1478, 1429],
+  [1461, 1411], [1441, 1393], [1427, 1391], [1425, 1375], [1438, 1362],
+  [1430, 1342], [1416, 1357], [1402, 1353], [1391, 1364], [1362, 1322],
+  [1345, 1349], [1333, 1320], [1322, 1338], [1315, 1326], [1297, 1353],
+  [1271, 1313], [1257, 1299], [1250, 1306], [1213, 1253], [1197, 1288],
+  [1165, 1259], [1137, 1277], [1125, 1302], [1116, 1306], [1108, 1293],
+  [1094, 1284], [1087, 1266], [1063, 1291], [1049, 1299], [1043, 1315],
+  [1022, 1288], [1014, 1308], [1003, 1313], [982, 1342], [989, 1357],
+  [1007, 1366], [1054, 1366], [1061, 1378], [1090, 1380], [1136, 1384],
+  [1155, 1398], [1175, 1395], [1192, 1406], [1213, 1395], [1242, 1409],
+  [1257, 1427], [1304, 1442], [1326, 1456], [1376, 1465], [1425, 1478]
+    ],
+    highlightImage: "overlays/mountains-of-ice.png",
+    image: "images/mountains-of-ice.jpg",
+  },
+  {
+    name: "Dragon's Spine",
+    description: "",
+    population: "",
+    shape: "polygon",
+    polygon: [
+  [450, 753], [469, 740], [488, 740], [468, 709], [460, 716], 
+  [435, 687], [428, 700], [404, 662], [399, 676], [366, 631], 
+  [337, 593], [316, 618], [274, 673], [307, 677], [319, 691], 
+  [354, 693], [368, 705], [393, 714], [393, 725], [422, 731]
+    ],
+    highlightImage: "overlays/dragons-spine.png",
+    image: "images/dragons-spine.jpg",
+  },
+  {
+    name: "Port Zevar",
+    description: "",
+    population: "",
+    shape: "rect",
+    x1: 1856, 
+    y1: 822, 
+    x2: 1962, 
+    y2: 854,
+    highlightImage: "overlays/port-zevar.png",
+    image: "images/port-zevar.webp",
+  },
+  {
+    name: "Misty Islands",
+    description: "",
+    population: "",
+    shape: "polygon",
+    polygon: [
+      [163, 221], [206, 134], [186, 103], [237, 53], [325, 60],
+      [345, 105], [430, 130], [461, 199], [396, 261], [351, 279],
+      [278, 291], [197, 270],
+    ],
+    highlightImage: "overlays/misty-islands.png",
+    image: "images/misty-islands.webp",
+  },
+  {
+    name: "The Barrows",
+    description: "",
+    population: "",
+    shape: "polygon",
+    polygon: [
+      [158, 306], [278, 297], [339, 281], [442, 250], [706, 247],
+      [793, 323], [746, 413], [746, 438], [804, 469], [491, 567],
+      [482, 494], [440, 496], [319, 482], [312, 428], [269, 391],
+      [198, 402], [173, 458], [131, 480], [99, 467], [106, 408],
+      [153, 362],
+    ],
+    highlightImage: "overlays/the-barrows.png",
+    image: "images/the-barrows.jpg",
+  },
+  {
+    name: "Ember Isles",
+    description: "",
+    population: "",
+    shape: "polygon",
+    polygon: [
+      [991, 298], [1103, 193], [1177, 153], [1267, 151], [1355, 171],
+      [1394, 208], [1394, 259], [1331, 362], [1263, 424], [1182, 408],
+      [1067, 371], [999, 356],
+    ],
+    
+    highlightImage: "overlays/ember-isles.png",
+    image: "images/ember-isles.webp",
+  },
+  {
+    name: "Mountains of Ash",
+    description: "",
+    population: "",
+    shape: "polygon",
+    polygon: [
+      [904, 446], [1116, 388], [1168, 406], [1259, 478],
+      [1208, 511], [1145, 518], [1018, 498],
+    ],
+    highlightImage: "overlays/mountains-of-ash.png",
+    image: "images/mountains-of-ash.jpg",
+  },
+  {
+    name: "Titan Range",
+    description: "",
+    population: "",
+    shape: "polygon",
+    polygon: [
+      [1020, 499], [1145, 522], [1255, 823], [1315, 823], [1383, 915],
+      [1380, 971], [1248, 1099], [1266, 1189], [1322, 1265], [1264, 1299],
+      [1181, 1271], [1069, 1151], [1217, 967], [1195, 901], [1116, 775],
+      [1056, 663],
+    ],
+    highlightImage: "overlays/titan-range.png",
+    image: "images/titan-range.jpg",
+  },
+  {
+    name: "Whispering Cliffs",
+    description: "",
+    population: "",
+    shape: "polygon",
+    polygon: [
+  [1327, 1235], [1345, 1237], [1383, 1228], [1423, 1192], [1447, 1146],
+  [1459, 1112], [1463, 1079], [1468, 1052], [1468, 1027], [1467, 1002],
+  [1465, 983], [1465, 970], [1465, 953], [1458, 931], [1443, 918],
+  [1447, 875], [1441, 841], [1427, 835], [1405, 804], [1374, 780],
+  [1369, 751], [1360, 730], [1344, 719], [1335, 704], [1340, 686],
+  [1329, 666], [1315, 652], [1295, 643], [1275, 639], [1253, 632],
+  [1250, 612], [1260, 594], [1260, 576], [1244, 567], [1226, 558],
+  [1233, 583], [1226, 605], [1230, 634], [1251, 652], [1297, 666],
+  [1313, 684], [1313, 703], [1322, 731], [1344, 748], [1362, 791],
+  [1421, 860], [1423, 920], [1436, 945], [1434, 970], [1434, 988],
+  [1418, 1012], [1412, 1028], [1414, 1046], [1420, 1064], [1396, 1119],
+  [1358, 1155], [1347, 1180], [1340, 1213]
+    ],
+    highlightImage: "overlays/whispering-cliffs.png",
+    image: "images/whispering-cliffs.jpg",
+  },
+  {
+    name: "Zevari Desert",
+    description: "",
+    population: "",
+    shape: "polygon",
+    polygon: [
+      [1246, 566], [1510, 621], [1687, 821], [1581, 865], [1494, 874],
+      [1441, 848], [1242, 617], [1260, 592],
+    ],
+    highlightImage: "overlays/zevari-desert.png",
+    image: "images/northern-zevari-desert.jpg"
+  },
+  {
+    name: "Zevari Desert",
+    description: "",
+    population: "",
+    shape: "polygon",
+    polygon: [
+      [1483, 936], [1591, 943], [1635, 936], [1716, 911], [1763, 956],
+      [1814, 981], [1818, 1001], [1798, 1021], [1749, 1010], [1648, 1064],
+      [1601, 1122], [1615, 1158], [1629, 1223], [1599, 1238], [1506, 1196],
+      [1488, 1180], [1440, 1195], [1440, 1138], [1412, 1119], [1449, 1059],
+      [1427, 1039], [1449, 970],
+    ],
+    highlightImage: "overlays/zevari-desert.png",
+    image: "images/southern-zevari-desert.jpg",
+  },
+  {
+    name: "River Zev",
+    description: "",
+    population: "",
+    shape: "polygon",
+    polygon: [
+      [1497, 880], [1590, 866], [1738, 801], [1734, 785], [1836, 774],
+      [1861, 877], [1821, 978], [1720, 906], [1651, 928], [1588, 939],
+      [1526, 933], [1470, 933], [1499, 908],
+    ],
+    highlightImage: "overlays/river-zev.png",
+    image: "images/river-zev.jpg",
+  },
+  {
+    name: "Sandspire Gulf",
+    description: "",
+    population: "",
+    shape: "polygon",
+    polygon: [
+      [1686, 1070], [1758, 1038], [1819, 1074], [1930, 991], [1975, 996],
+      [1970, 1096], [1953, 1132], [1847, 1307], [1778, 1358], [1657, 1367],
+      [1572, 1324], [1559, 1280], [1499, 1224], [1528, 1215], [1553, 1242],
+      [1575, 1235], [1599, 1251], [1613, 1248], [1640, 1224], [1628, 1179],
+      [1651, 1161], [1637, 1123], [1629, 1101], [1677, 1099],
+    ],
+    highlightImage: "overlays/sandspire-gulf.png",
+    image: "images/sandspire-gulf.webp",
+  },
+  {
+    name: "Vashira",
+    description: "",
+    population: "",
+    shape: "polygon",
+    polygon: [
+      [59, 768], [106, 755], [150, 800], [193, 815], [235, 802],
+      [305, 806], [302, 838], [291, 874], [327, 905], [294, 923],
+      [309, 952], [274, 1015], [316, 1086], [265, 1173], [200, 1350],
+      [142, 1347], [121, 1249], [25, 1097], [12, 941],
+    ],
+    highlightImage: "overlays/vashira.png",
+    image: "images/vashira.jpg",
+  },
+  {
+    name: "Kalora",
+    description: "",
+    population: "",
+    shape: "polygon",
+    polygon: [
+      [1340, 1258], [1405, 1255], [1376, 1327], [1387, 1353], [1438, 1345],
+      [1492, 1448], [1505, 1497], [1429, 1517], [1268, 1488], [1199, 1445],
+      [1192, 1407], [852, 1410], [814, 1387], [841, 1334], [757, 1143],
+      [978, 1146], [1054, 1146], [1174, 1273], [1264, 1304],
+    ],
+    highlightImage: "overlays/kalora.png",
+    image: "images/kalora.webp",
+  },
+  {
+    name: "Drakorian Plateau",
+    description: "",
+    population: "",
+    shape: "polygon",
+    polygon: [
+      [1150, 523], [1250, 583], [1233, 619], [1318, 706], [1354, 750],
+      [1362, 782], [1398, 809], [1434, 854], [1394, 901], [1389, 920],
+      [1452, 950], [1418, 1041], [1434, 1061], [1400, 1132], [1358, 1146],
+      [1349, 1215], [1302, 1228], [1268, 1182], [1250, 1099], [1382, 970],
+      [1385, 930], [1373, 894], [1315, 818], [1259, 819],
+    ],
+    highlightImage: "overlays/drakorian-plateau.png",
+    image: "images/drakorian-plateau.webp",
+  },
+  {
+    name: "Crystal Coast",
+    description: "",
+    population: "",
+    shape: "polygon",
+    polygon: [
+      [1344, 435], [1546, 411], [1655, 456], [1731, 551], [1651, 601],
+      [1564, 583], [1534, 587], [1492, 583], [1430, 558], [1322, 565],
+    ],
+    highlightImage: "overlays/crystal-coast.png",
+    image: "images/crystal-coast.webp",
+  }, 
+  {
+    name: "Shadow Gorge",
+    description: "",
+    population: "",
+    shape: "polygon",
+    polygon: [
+  [1449, 933], [1440, 871], [1427, 879], [1412, 886], [1402, 900],
+  [1387, 900], [1373, 895], [1385, 915], [1398, 922], [1425, 929]
+    ],
+    highlightImage: "overlays/shadow-gorge.png",
+    image: "images/shadow-gorge.webp",
+  },
+
+  {
+    name: "Vashiri Territory",
+    description: "",
+    population: "",
+    shape: "polygon",
+    polygon: [
+  [277, 1243], [300, 1259], [331, 1261], [356, 1257], [380, 1253],
+  [396, 1244], [414, 1234], [427, 1221], [436, 1205], [439, 1194],
+  [432, 1181], [438, 1170], [467, 1161], [500, 1117], [578, 960],
+  [569, 940], [544, 922], [516, 913], [480, 895], [449, 859],
+  [448, 822], [431, 803], [421, 779], [404, 763], [384, 752],
+  [368, 741], [348, 732], [334, 721], [321, 714], [310, 703],
+  [299, 705], [287, 696], [278, 687], [272, 674], [270, 663],
+  [281, 645], [292, 636], [299, 627], [308, 614], [317, 605],
+  [328, 598], [343, 598], [355, 604], [361, 616], [363, 631],
+  [370, 642], [383, 649], [393, 654], [404, 645], [399, 631],
+  [386, 629], [384, 614], [392, 607], [393, 580], [383, 569],
+  [364, 575], [348, 578], [332, 576], [323, 557], [305, 551],
+  [296, 560], [310, 573], [299, 593], [288, 620], [270, 633],
+  [254, 633], [238, 631], [212, 616], [216, 602], [227, 593],
+  [220, 576], [205, 586], [189, 595], [167, 604], [158, 613],
+  [104, 640], [118, 656], [156, 669], [146, 689], [151, 703],
+  [160, 692], [169, 699], [184, 742], [242, 731], [273, 742],
+  [311, 764], [314, 793], [327, 809], [336, 834], [338, 860],
+  [320, 878], [316, 889], [323, 899], [336, 912], [318, 921],
+  [307, 934], [318, 950], [303, 975], [292, 990], [302, 999],
+  [314, 1012], [330, 1024], [340, 1037], [347, 1051], [367, 1077],
+  [381, 1106], [359, 1149], [330, 1171], [302, 1178], [276, 1196],
+  [267, 1223]
+],
+    highlightImage: "overlays/vashiri-territory.png",
+    image: "images/vashiri-territory.webp",
+  },
+  {
+    name: "Iron Hills",
+    description: "",
+    population: "",
+    shape: "polygon",
+    polygon: [
+      [633, 964], [681, 982], [685, 1035], [653, 1066], [653, 1129],
+      [700, 1178], [728, 1219], [727, 1326], [674, 1360], [624, 1330],
+      [609, 1295], [607, 1266], [569, 1257], [551, 1210], [549, 1181],
+      [540, 995],
+    ],
+    highlightImage: "overlays/iron-hills.png",
+    image: "images/iron-hills.webp",
+  },
+  {
+    name: "Eloria",
+    description: "",
+    population: "",
+    shape: "polygon",
+    polygon: [      [991, 1020], [1007, 1022], [1023, 1017], [1029, 1028], [1052, 1024], 
+    [1047, 1000], [1016, 957], [1003, 895], [980, 856], [953, 827], 
+    [934, 816], [929, 789], [909, 794], [900, 819], [893, 841], 
+    [884, 850], [840, 874], [806, 892], [782, 897], [759, 881], 
+    [739, 879], [719, 888], [696, 903], [679, 924], [665, 930], 
+    [641, 932], [618, 939], [611, 952], [621, 957], [641, 957], 
+    [659, 957], [670, 950], [699, 955], [721, 948], [710, 917], 
+    [728, 897], [743, 895], [759, 908], [757, 919], [764, 935], 
+    [784, 935], [795, 950], [822, 953], [835, 944], [839, 924], 
+    [846, 912], [864, 915], [878, 895], [891, 899], [911, 894], 
+    [929, 888], [945, 894], [956, 908], [967, 908], [971, 919], 
+    [960, 939], [949, 942], [931, 941], [918, 952], [922, 968], 
+    [943, 964], [958, 971], [965, 997], [976, 1017]
+    ],
+    highlightImage: "overlays/eloria.png",
+    image: "images/eloria.jpg",
+  },
+  {
+    name: "Selenor",
+    description: "",
+    population: "",
+    shape: "polygon",
+    polygon: [
+      [772, 553], [795, 571], [821, 567], [926, 463], [1014, 502],
+      [1029, 576], [956, 600], [960, 624], [942, 652], [942, 674],
+      [895, 668], [812, 740], [616, 660], [757, 586],
+    ],
+    highlightImage: "overlays/selenor.png",
+    image: "images/selenor.jpg",
+  },
+  {
+    name: "Meridian Villages",
+    description: "",
+    population: "",
+    shape: "polygon",
+    polygon: [
+      [519, 560], [801, 473], [779, 535], [768, 553],
+      [750, 584], [618, 658], [551, 622],
+    ],
+    highlightImage: "overlays/meridian-villages.png",
+    image: "images/meridian-villages.webp",
+  },
+];
+
+for (let zone of ZONES) {
+  if (zone.highlightImage) {
+    const img = new Image();
+    img.src = zone.highlightImage; // Ensure the path is correct
+    img.onload = () => console.log(`Highlight loaded for ${zone.name}`);
+    img.onerror = () => console.error(`Failed to load ${zone.highlightImage}`);
+    highlightImages[zone.name] = img; // Store it by zone name
+  }
+}
+
+/* =========================================
+   4) LOADING & INITIAL DRAW
+   ========================================= */
+mapImg.onload = function() {
+  drawAll();
+};
+window.addEventListener('resize', resizeCanvas);
+resizeCanvas(); // do an initial size
+
+function resizeCanvas() {
+  mapCanvas.width  = mapContainer.clientWidth;
+  mapCanvas.height = mapContainer.clientHeight;
+  drawAll();
+}
+
+/* =========================================
+   5) DRAWING
+   ========================================= */
+function drawAll() {
+  ctx.clearRect(0,0,mapCanvas.width,mapCanvas.height);
+
+  // Draw map image
+  const tl = mapToScreen(0,0);
+  const br = mapToScreen(MAP_WIDTH, MAP_HEIGHT);
+  const drawW = br.x - tl.x;
+  const drawH = br.y - tl.y;
+  ctx.drawImage(mapImg, tl.x, tl.y, drawW, drawH);
+  
+  // Draw zone highlight
+  if (hoveredZone) {
+    const highlightImg = highlightImages[hoveredZone.name]; // Use the name as the key
+    if (highlightImg) {
+      const tl = mapToScreen(0, 0); // Top-left corner of map
+      const br = mapToScreen(MAP_WIDTH, MAP_HEIGHT); // Bottom-right corner    const drawW = br.x - tl.x;
+      const drawH = br.y - tl.y;
+      ctx.globalAlpha = 0.5; // Optional: Add transparency
+      ctx.drawImage(highlightImg, tl.x, tl.y, drawW, drawH);
+      ctx.globalAlpha = 1.0; // Reset transparency
+    } else {
+      console.error(`No highlight image for zone: ${hoveredZone.name}`);
+    }
+  }
+
+
+  // For debugging: draw zone shapes in translucent red
+//  ctx.save();
+//  ctx.fillStyle   = 'rgba(255,0,0,0.15)';
+//  ctx.strokeStyle = 'rgba(255,0,0,0.4)';
+//  for (let z of ZONES) {
+//    drawZone(z);
+//  }
+//  ctx.restore();
+
+  // Draw finished measurements
+  for (let m of measurements) {
+    drawMeasurementPath(m.points, m.color);
+  }
+  
+  // If measuring, draw the current path
+  if (measuringActive && currentMeasurePoints.length > 0) {
+    const color = MEASURE_COLORS[measureColorIndex];
+    // Draw the actual points so far (if there's at least 2)
+    if (currentMeasurePoints.length > 1) {
+      drawMeasurementPath(currentMeasurePoints, color);
+    }
+
+    // Draw partial line from the last point to the cursor
+    if (cursorMapPos) {
+      const lastPt = currentMeasurePoints[currentMeasurePoints.length - 1];
+      drawTemporarySegment(lastPt, cursorMapPos, color);
+    }
+      // If measuring and we have at least 2 points, draw partial path
+      if (measuringActive && currentMeasurePoints.length > 1) {
+        const color = MEASURE_COLORS[measureColorIndex];
+        drawMeasurementPath(currentMeasurePoints, color);
+      }
+  }
+  updateMeasurementLabels();
+}
+
+function drawTemporarySegment(pt1, pt2, color) {
+  ctx.save();
+  ctx.strokeStyle = color;
+  ctx.lineWidth = 2;
+  ctx.beginPath();
+
+  const s1 = mapToScreen(pt1.x, pt1.y);
+  const s2 = mapToScreen(pt2.x, pt2.y);
+
+  ctx.moveTo(s1.x, s1.y);
+  ctx.lineTo(s2.x, s2.y);
+  ctx.stroke();
+
+  ctx.restore();
+}
+
+
+function drawZone(zone) {
+  switch (zone.shape) {
+    case "circle":
+      drawZoneCircle(zone);
+      break;
+    case "rect":
+      drawZoneRect(zone);
+      break;
+    case "polygon":
+    default:
+      if (zone.polygon) {
+        drawZonePolygon(zone.polygon);
+      }
+      break;
+  }
+}
+function drawZoneCircle(zone) {
+  const { cx, cy, r } = zone;
+  ctx.beginPath();
+  const scr = mapToScreen(cx, cy);
+  const radiusScr = r * mapScale;
+  ctx.arc(scr.x, scr.y, radiusScr, 0, 2*Math.PI);
+  ctx.fill();
+  ctx.stroke();
+}
+function drawZoneRect(zone) {
+  const left   = Math.min(zone.x1, zone.x2);
+  const right  = Math.max(zone.x1, zone.x2);
+  const top    = Math.min(zone.y1, zone.y2);
+  const bottom = Math.max(zone.y1, zone.y2);
+  const tl = mapToScreen(left, top);
+  const rb = mapToScreen(right, bottom);
+  const w = rb.x - tl.x;
+  const h = rb.y - tl.y;
+  ctx.fillRect(tl.x, tl.y, w, h);
+  ctx.strokeRect(tl.x, tl.y, w, h);
+}
+function drawZonePolygon(poly) {
+  if (poly.length < 2) return;
+  ctx.beginPath();
+  let s0 = mapToScreen(poly[0][0], poly[0][1]);
+  ctx.moveTo(s0.x, s0.y);
+  for (let i=1; i<poly.length; i++){
+    let [mx,my] = poly[i];
+    let s = mapToScreen(mx, my);
+    ctx.lineTo(s.x, s.y);
+  }
+  ctx.closePath();
+  ctx.fill();
+  ctx.stroke();
+}
+
+// Draw measuring lines
+function drawMeasurementPath(points, color) {
+  if (points.length < 2) return;
+  ctx.save();
+  ctx.strokeStyle = color;
+  ctx.lineWidth = 2;
+  ctx.beginPath();
+  let start = mapToScreen(points[0].x, points[0].y);
+  ctx.moveTo(start.x, start.y);
+  for (let i=1; i<points.length; i++){
+    let s = mapToScreen(points[i].x, points[i].y);
+    ctx.lineTo(s.x, s.y);
+  }
+  ctx.stroke();
+  ctx.restore();
+}
+
+function updateMeasurementLabels() {
+  for (let m of measurements) {
+    if (!m.labelEl) continue; // skip if no label
+
+    // Get the final point in the measurement path
+    const lastPt = m.points[m.points.length - 1];
+    const scr = mapToScreen(lastPt.x, lastPt.y);
+
+    m.labelEl.style.left = (scr.x + 8) + "px";
+    m.labelEl.style.top  = (scr.y + 8) + "px";
+  }
+}
+
+
+/* =========================================
+   6) CLICK-AND-DRAG PANNING
+   ========================================= */
+mapCanvas.addEventListener("mousedown", (e) => {
+  isPanning = true;
+  hasDragged = false; // Reset drag detection
+  startX = e.clientX;
+  startY = e.clientY;
+  lastOffsetX = mapOffsetX;
+  lastOffsetY = mapOffsetY;
+});
+
+mapCanvas.addEventListener("mousemove", (e) => {
+  if (!isPanning) return;
+  
+  // Check if the user moved beyond the drag threshold
+  if (Math.abs(e.clientX - startX) > DRAG_THRESHOLD || Math.abs(e.clientY - startY) > DRAG_THRESHOLD) {
+    hasDragged = true;
+    mapCanvas.style.cursor = "grabbing";
+    zoneTooltip.style.display = "none";
+  }
+  if (hasDragged) {
+    mapOffsetX = lastOffsetX - (e.clientX - startX);
+    mapOffsetY = lastOffsetY - (e.clientY - startY);
+    drawAll();
+  }
+});
+
+mapCanvas.addEventListener("mouseup", () => {
+  isPanning = false;
+  mapCanvas.style.cursor = "auto";
+  zoneTooltip.style.display = "block";
+});
+
+mapCanvas.addEventListener("mouseleave", () => {
+  isPanning = false;
+  zoneTooltip.style.display = "block";
+});
+
+/* =========================================
+   7) TRANSFORM UTILS
+   ========================================= */
+function screenToMap(sx, sy) {
+  const rect = mapCanvas.getBoundingClientRect();
+  const cx = sx - rect.left;
+  const cy = sy - rect.top;
+  const mx = (cx / mapScale) + mapOffsetX;
+  const my = (cy / mapScale) + mapOffsetY;
+  return { x: mx, y: my };
+}
+function mapToScreen(mx, my) {
+  const sx = (mx - mapOffsetX) * mapScale;
+  const sy = (my - mapOffsetY) * mapScale;
+  return { x: sx, y: sy };
+}
+
+/* =========================================
+   8) ZOOM ON WHEEL
+   ========================================= */
+mapCanvas.addEventListener('wheel', (e) => {
+  e.preventDefault();
+  const mouseMapBefore = screenToMap(e.clientX, e.clientY);
+  const zoom = (e.deltaY < 0) ? 1.1 : 0.9;
+  const oldScale = mapScale;
+  mapScale *= zoom;
+  if (mapScale < MIN_SCALE) mapScale = MIN_SCALE;
+  if (mapScale > MAX_SCALE) mapScale = MAX_SCALE;
+
+  const mouseMapAfter = screenToMap(e.clientX, e.clientY);
+  mapOffsetX += (mouseMapBefore.x - mouseMapAfter.x);
+  mapOffsetY += (mouseMapBefore.y - mouseMapAfter.y);
+
+  drawAll();
+}, { passive: false });
+
+/* =========================================
+   9) CLICK & MEASURE
+   ========================================= */
+mapCanvas.addEventListener('contextmenu', (e) => {
+  e.preventDefault();
+  return false;
+});
+
+// Right-click => start measuring or add a point
+mapCanvas.addEventListener('pointerdown', (e) => {
+  if (e.button === 2) {
+    // Right-click
+    e.preventDefault();
+    if (!measuringActive) {
+      measuringActive = true;
+      currentMeasurePoints = [];
+      measureTooltip.style.display = 'block';
+    }
+    const mPos = screenToMap(e.clientX, e.clientY);
+    currentMeasurePoints.push(mPos);
+    drawAll();
+  }
+});
+
+// Left-click => if measuring, end measurement; else pick zone
+mapCanvas.addEventListener('pointerdown', (e) => {
+  if (e.button === 0) {
+    if (measuringActive) {
+      const mPos = screenToMap(e.clientX, e.clientY);
+      currentMeasurePoints.push(mPos);
+      endMeasurement();
+      drawAll();
+    } else {
+      // Not measuring => see if zone clicked
+      const mPos = screenToMap(e.clientX, e.clientY);
+      let clickedZone = null;
+      for (let z of ZONES) {
+        if (isPointInZone(mPos.x, mPos.y, z)) {
+          clickedZone = z;
+          break;
+        }
+      }
+      if (clickedZone) {
+        showZoneInfo(clickedZone);
+      } else {
+        zoneInfoEl.textContent = "No zone clicked.";
+      }
+    }
+  }
+});
+
+mapCanvas.addEventListener('pointermove', (e) => {
+  const mPos = screenToMap(e.clientX, e.clientY);
+  let totalDistance = 0; // Reset total distance
+
+  let foundZone = null;
+  for (let zone of ZONES) {
+    if (isPointInZone(mPos.x, mPos.y, zone)) {
+      foundZone = zone;
+      break;
+    }
+  }
+
+  if (foundZone !== hoveredZone) {
+    hoveredZone = foundZone; // Update the hovered zone
+    drawAll(); // Redraw to show the highlight
+  }
+
+  // If measuring, update cursor position for dynamic line
+  if (measuringActive) {
+    cursorMapPos = mPos;
+
+    // Calculate the total distance dynamically
+    if (currentMeasurePoints.length > 0) {
+      // Calculate distance between all previous points
+      for (let i = 0; i < currentMeasurePoints.length - 1; i++) {
+        const pt1 = currentMeasurePoints[i];
+        const pt2 = currentMeasurePoints[i + 1];
+        totalDistance += distance(pt1.x, pt1.y, pt2.x, pt2.y);
+      }
+
+      // Add distance from the last point to the cursor
+      const lastPt = currentMeasurePoints[currentMeasurePoints.length - 1];
+      totalDistance += distance(lastPt.x, lastPt.y, cursorMapPos.x, cursorMapPos.y);
+    }
+
+    // Convert to miles
+    totalDistance *= MILES_PER_PIXEL;
+
+    // Show the total distance in the tooltip
+    measureTooltip.style.display = 'block';
+    measureTooltip.textContent = `${totalDistance.toFixed(0)} mi`;
+    measureTooltip.style.left = (e.clientX + 12) + 'px';
+    measureTooltip.style.top = (e.clientY + 12) + 'px';
+
+    // Draw the updated path
+    drawAll();
+  } else {
+    cursorMapPos = null; // No partial line if not measuring
+    measureTooltip.style.display = 'none';
+  }
+
+  // Zone hover if not measuring
+  if (!measuringActive && !isPanning) {
+    const hoverZone = ZONES.find((z) => isPointInZone(mPos.x, mPos.y, z));
+    if (hoverZone) {
+      zoneTooltip.style.display = 'block';
+      zoneTooltip.textContent = hoverZone.name;
+      zoneTooltip.style.left = (e.clientX + 12) + 'px';
+      zoneTooltip.style.top = (e.clientY + 12) + 'px';
+    } else {
+      zoneTooltip.style.display = 'none';
+    }
+  } else {
+    zoneTooltip.style.display = 'none';
+  }
+});
+
+/* =========================================
+   10) END MEASUREMENT
+   ========================================= */
+function endMeasurement() {
+  measuringActive = false;
+  measureTooltip.style.display = 'none';
+  if (currentMeasurePoints.length < 2) {
+    currentMeasurePoints = [];
+    return;
+  }
+  const color = MEASURE_COLORS[measureColorIndex];
+  const newMeas = {
+    points: [...currentMeasurePoints],
+    color: color,
+    labelEl: null
+  };
+  measurements.push(newMeas);
+
+  // Place label at last point
+  const lastPt = currentMeasurePoints[currentMeasurePoints.length - 1];
+  const totalDistPixels = calcPathDistance(currentMeasurePoints);
+  const totalDistMiles = totalDistPixels * MILES_PER_PIXEL;
+
+  const labelDiv = document.createElement('div');
+  labelDiv.className = 'measure-label';
+  labelDiv.innerHTML = `${totalDistMiles.toFixed(0)} mi <button>x</button>`;
+  labelDiv.style.border = `1px solid ${color}`;
+  mapContainer.appendChild(labelDiv);
+  newMeas.labelEl = labelDiv;
+
+  const scr = mapToScreen(lastPt.x, lastPt.y);
+  labelDiv.style.left = (scr.x + 8) + 'px';
+  labelDiv.style.top  = (scr.y + 8) + 'px';
+
+  // Remove on x-click
+  const btn = labelDiv.querySelector('button');
+  btn.addEventListener('click', () => {
+    labelDiv.remove();
+    measurements = measurements.filter(m => m !== newMeas);
+    if (measurements.length === 0) {
+      measureColorIndex = 0; 
+    }
+    drawAll();
+  });
+
+  currentMeasurePoints = [];
+  measureColorIndex = (measureColorIndex + 1) % MEASURE_COLORS.length;
+}
+
+/* =========================================
+   11) ZONE HITTEST
+   ========================================= */
+function isPointInZone(px, py, zone) {
+  switch (zone.shape) {
+    case "circle":
+      return pointInCircle(px, py, zone);
+    case "rect":
+      return pointInRect(px, py, zone);
+    case "polygon":
+    default:
+      if (zone.polygon) {
+        return pointInPolygon(px, py, zone.polygon);
+      }
+      return false;
+  }
+}
+function pointInCircle(px, py, zone) {
+  const dx = px - zone.cx;
+  const dy = py - zone.cy;
+  const dist2 = dx*dx + dy*dy;
+  const r2 = zone.r * zone.r;
+  return dist2 <= r2;
+}
+function pointInRect(px, py, zone) {
+  const left   = Math.min(zone.x1, zone.x2);
+  const right  = Math.max(zone.x1, zone.x2);
+  const top    = Math.min(zone.y1, zone.y2);
+  const bottom = Math.max(zone.y1, zone.y2);
+  return (px >= left && px <= right && py >= top && py <= bottom);
+}
+function pointInPolygon(px, py, polygon) {
+  let inside = false;
+  for (let i=0, j=polygon.length-1; i<polygon.length; j=i++) {
+    const [xi, yi] = polygon[i];
+    const [xj, yj] = polygon[j];
+    const intersect = ((yi > py) !== (yj > py)) &&
+      (px < (xj - xi) * (py - yi) / (yj - yi) + xi);
+    if (intersect) inside = !inside;
+  }
+  return inside;
+}
+
+/* =========================================
+   12) ZONE INFO
+   ========================================= */
+function showZoneInfo(zone) {
+
+  document.getElementById('infoTitle').textContent = zone.name;
+  zoneInfoEl.innerHTML = `
+    <center><div><img id="info-image" src="${zone.image}" alt="${zone.name}"></div></center>
+    <div id="zone-info">${zone.description}</div>
+  `;
+}
+
+/* =========================================
+   13) MISC UTILS
+   ========================================= */
+function distance(x1, y1, x2, y2) {
+  const dx = x2 - x1;
+  const dy = y2 - y1;
+  return Math.sqrt(dx*dx + dy*dy);
+}
+function calcPathDistance(points) {
+  let sum = 0;
+  for (let i=1; i<points.length; i++){
+    sum += distance(points[i-1].x, points[i-1].y, points[i].x, points[i].y);
+  }
+  return sum;
+}
+const infoPane = document.getElementById("infoPane");
+const collapseBtn = document.getElementById("collapseBtn");
+
+collapseBtn.addEventListener("click", () => {
+  infoPane.classList.toggle("collapsed");
+
+  // Change button icon when collapsed
+  //collapseBtn.textContent = infoPane.classList.contains("collapsed") ? "⬤⬤⬤" : "⋮";
+});
+
+</script>
+
+</body>
+</html>
