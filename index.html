@@ -248,6 +248,8 @@ const mapImg = new Image();
 mapImg.src = "aeldrakor-map.jpg"; // must be 2048 x 1610
 
 // Camera transform (in map coords)
+let initialZoomSet = false; // Ensure zoom is set only once
+
 let mapScale   = 1.0;  // range [1, 4]
 let mapOffsetX = 0;    
 let mapOffsetY = 0;    
@@ -725,6 +727,7 @@ mapImg.onload = function() {
   drawAll();
 };
 window.addEventListener('resize', resizeCanvas);
+window.addEventListener('load', resizeCanvas);
 resizeCanvas(); // do an initial size
 
 function resizeCanvas() {
